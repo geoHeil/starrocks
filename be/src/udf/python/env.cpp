@@ -102,7 +102,13 @@ Status PyWorkerManager::_fork_py_worker(std::unique_ptr<PyWorker>* child_process
     }
     posix_spawn_file_actions_addclose(&actions, pipefd[0]);
 
-    DIR* dir = opendir("/proc/self/fd");
+#ifdef __APPLE__
+    const char* fd_dir_path = "/dev/fd";
+#else
+    const char* fd_dir_path = "/proc/self/fd";
+#endif
+
+    DIR* dir = opendir(fd_dir_path);
     auto defer = DeferOp([&dir]() {
         if (dir != nullptr) {
             closedir(dir);
@@ -110,7 +116,7 @@ Status PyWorkerManager::_fork_py_worker(std::unique_ptr<PyWorker>* child_process
     });
 
     if (dir == nullptr) {
-        return Status::InternalError(fmt::format("open /proc/self/fd error {}", std::strerror(errno)));
+        return Status::InternalError(fmt::format("open {} error {}", fd_dir_path, std::strerror(errno)));
     }
 
     {
@@ -122,7 +128,7 @@ Status PyWorkerManager::_fork_py_worker(std::unique_ptr<PyWorker>* child_process
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != nullptr) {
-        if (entry->d_type == DT_LNK) {
+        if (entry->d_type == DT_LNK || entry->d_type == DT_UNKNOWN) {
             int fd = atoi(entry->d_name);
             if (fd > 3 && fd != pipefd[0] && fd != pipefd[1]) {
                 posix_spawn_file_actions_addclose(&actions, fd);

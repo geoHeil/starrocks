@@ -36,6 +36,8 @@
 
 #include <gperftools/profiler.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -55,6 +57,28 @@ namespace starrocks {
 // pprof default sample time in seconds.
 static const std::string SECOND_KEY = "seconds";
 static const int kPprofDefaultSampleSecs = 30;
+
+static std::string get_process_cmdline() {
+#ifdef __APPLE__
+    const char* prog_name = getprogname();
+    if (prog_name == nullptr || prog_name[0] == '\0') {
+        return "read cmdline failed";
+    }
+    return prog_name;
+#else
+    FILE* fp = fopen("/proc/self/cmdline", "r");
+    if (fp == nullptr) {
+        return "Unable to open file: /proc/self/cmdline";
+    }
+    char buf[1024];
+    if (fscanf(fp, "%1023s ", buf) != 1) {
+        fclose(fp);
+        return "read cmdline failed";
+    }
+    fclose(fp);
+    return buf;
+#endif
+}
 
 // Protect, only one thread can work
 #if !(defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER))
@@ -153,21 +177,7 @@ void IOProfileAction::handle(HttpRequest* req) {
 }
 
 void CmdlineAction::handle(HttpRequest* req) {
-    FILE* fp = fopen("/proc/self/cmdline", "r");
-    if (fp == nullptr) {
-        std::string str = "Unable to open file: /proc/self/cmdline";
-
-        HttpChannel::send_reply(req, str);
-        return;
-    }
-    char buf[1024];
-    if (fscanf(fp, "%1023s ", buf) != 1) {
-        strcpy(buf, "read cmdline failed");
-    }
-    fclose(fp);
-    std::string str = buf;
-
-    HttpChannel::send_reply(req, str);
+    HttpChannel::send_reply(req, get_process_cmdline());
 }
 
 void SymbolAction::handle(HttpRequest* req) {
